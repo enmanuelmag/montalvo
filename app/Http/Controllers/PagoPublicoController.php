@@ -420,7 +420,7 @@ class PagoPublicoController extends Controller
             // Capturar el pago
             Log::channel('paypal')->info('PayPal Capture Request', [
                 'url' => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
-                'headers' => ['Accept' => 'application/json', 'Authorization' => 'Bearer [TOKEN]'],
+                'headers' => ['Content-Type' => 'application/json', 'Accept' => 'application/json', 'Authorization' => 'Bearer [TOKEN]'],
                 'method' => 'POST',
                 'body' => 'empty',
                 'pago_id' => $pago->id,
@@ -439,7 +439,9 @@ class PagoPublicoController extends Controller
                 CURLOPT_FOLLOWLOCATION => true,
                 CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
                 CURLOPT_CUSTOMREQUEST => 'POST',
+                CURLOPT_POSTFIELDS => '',
                 CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
                     'Accept: application/json',
                     'Authorization: Bearer ' . $accessToken
                 ],
