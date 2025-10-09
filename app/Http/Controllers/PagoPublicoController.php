@@ -60,25 +60,25 @@ class PagoPublicoController extends Controller
 
         $botonPago = BotonPago::findOrFail($request->boton_pago_id);
 
-     $pago = PagosEfectuados::create([
-        'identificacion' => $request->identificacion,
-        'cliente' => $request->cliente,
-        'correo' => $request->correo,
-        'telefono' => $request->telefono,
-        'boton_pago_id' => $request->boton_pago_id,
-        'referencia' => $this->generarReferencia(),
-        'fecha_pago' => Carbon::now(),
-        'curso_id' => $request->curso_id,
-        'curso_nombre' => $request->curso_nombre,
-        'valor' => $request->valor,
-        'estado' => 'PENDIENTE DE CARGA COMPROBANTE',
-        'tipo_pago' => $botonPago->nombre_proveedor,
-    
-        // ✅ Nuevos campos con valores por defecto
-        'ciudad' => $request->ciudad ?: 'Quito',
-        'direccion' => $request->direccion ?: 'S/N'
-    ]);
-       // dd($botonPago);
+        $pago = PagosEfectuados::create([
+            'identificacion' => $request->identificacion,
+            'cliente' => $request->cliente,
+            'correo' => $request->correo,
+            'telefono' => $request->telefono,
+            'boton_pago_id' => $request->boton_pago_id,
+            'referencia' => $this->generarReferencia(),
+            'fecha_pago' => Carbon::now(),
+            'curso_id' => $request->curso_id,
+            'curso_nombre' => $request->curso_nombre,
+            'valor' => $request->valor,
+            'estado' => 'PENDIENTE DE CARGA COMPROBANTE',
+            'tipo_pago' => $botonPago->nombre_proveedor,
+
+            // ✅ Nuevos campos con valores por defecto
+            'ciudad' => $request->ciudad ?: 'Quito',
+            'direccion' => $request->direccion ?: 'S/N'
+        ]);
+        // dd($botonPago);
         // Redireccionar según el método de pago
         switch ($botonPago->nombre_proveedor) {
             case 'TRANSFERENCIA':
@@ -108,7 +108,7 @@ class PagoPublicoController extends Controller
     /**
      * Inicia el proceso de pago con PayPal
      */
-     /*
+    /*
     protected function iniciarPagoPaypal(PagosEfectuados $pago)
     {
         try {
@@ -192,129 +192,128 @@ class PagoPublicoController extends Controller
     }
     */
     protected function iniciarPagoPaypal(PagosEfectuados $pago)
-{
-    try {
-        $botonPago = $pago->botonPago;
+    {
+        try {
+            $botonPago = $pago->botonPago;
 
-        // Obtener configuración de PayPal desde config/services.php
-        $paypalMode = config('services.paypal.mode');
-        $paypalConfig = config("services.paypal.{$paypalMode}");
-        
-        if (!$paypalConfig['client_id'] || !$paypalConfig['client_secret']) {
-            throw new \Exception("Credenciales de PayPal no configuradas para modo: {$paypalMode}");
-        }
+            // Obtener configuración de PayPal desde config/services.php
+            $paypalMode = config('services.paypal.mode');
+            $paypalConfig = config("services.paypal.{$paypalMode}");
 
-        $data = [
-            "intent" => "CAPTURE",
-            "purchase_units" => [[
-                "reference_id" => $pago->referencia,
-                "amount" => [
-                    "currency_code" => "USD",
-                    "value" => number_format($pago->valor, 2, '.', '')
-                ],
-                "description" => $pago->curso_nombre
-            ]],
-            "application_context" => [
-                "brand_name" => "MontalvoEducacion",
-                "landing_page" => "NO_PREFERENCE",
-                "user_action" => "PAY_NOW",
-                "return_url" => route('pagos.paypal.capture', $pago->id),
-                "cancel_url" => route('pagos.publico.error', $pago->id)
-            ]
-        ];
+            if (!$paypalConfig['client_id'] || !$paypalConfig['client_secret']) {
+                throw new \Exception("Credenciales de PayPal no configuradas para modo: {$paypalMode}");
+            }
 
-        // Obtener token de acceso
-        $tokenResponse = Http::withBasicAuth(
-                $paypalConfig['client_id'], 
+            $data = [
+                "intent" => "CAPTURE",
+                "purchase_units" => [[
+                    "reference_id" => $pago->referencia,
+                    "amount" => [
+                        "currency_code" => "USD",
+                        "value" => number_format($pago->valor, 2, '.', '')
+                    ],
+                    "description" => $pago->curso_nombre
+                ]],
+                "application_context" => [
+                    "brand_name" => "MontalvoEducacion",
+                    "landing_page" => "NO_PREFERENCE",
+                    "user_action" => "PAY_NOW",
+                    "return_url" => route('pagos.paypal.capture', $pago->id),
+                    "cancel_url" => route('pagos.publico.error', $pago->id)
+                ]
+            ];
+
+            // Obtener token de acceso
+            $tokenResponse = Http::withBasicAuth(
+                $paypalConfig['client_id'],
                 $paypalConfig['client_secret']
             )
-            ->asForm()
-            ->post("{$paypalConfig['base_url']}/v1/oauth2/token", [
-                'grant_type' => 'client_credentials'
-            ]);
+                ->asForm()
+                ->post("{$paypalConfig['base_url']}/v1/oauth2/token", [
+                    'grant_type' => 'client_credentials'
+                ]);
 
-        if (!$tokenResponse->successful()) {
-            Log::channel('paypal')->error('PayPal Token Error', [
-                'status' => $tokenResponse->status(),
-                'response' => $tokenResponse->json(),
-                'body' => $tokenResponse->body(),
+            if (!$tokenResponse->successful()) {
+                Log::channel('paypal')->error('PayPal Token Error', [
+                    'status' => $tokenResponse->status(),
+                    'response' => $tokenResponse->json(),
+                    'body' => $tokenResponse->body(),
+                    'mode' => $paypalMode,
+                    'url' => "{$paypalConfig['base_url']}/v1/oauth2/token"
+                ]);
+                throw new \Exception('Error al obtener token de PayPal: ' . $tokenResponse->body());
+            }
+
+            $accessToken = $tokenResponse->json('access_token');
+
+            Log::channel('paypal')->info('PayPal Token obtenido exitosamente', [
                 'mode' => $paypalMode,
-                'url' => "{$paypalConfig['base_url']}/v1/oauth2/token"
+                'pago_id' => $pago->id
             ]);
-            throw new \Exception('Error al obtener token de PayPal: ' . $tokenResponse->body());
-        }
 
-        $accessToken = $tokenResponse->json('access_token');
-        
-        Log::channel('paypal')->info('PayPal Token obtenido exitosamente', [
-            'mode' => $paypalMode,
-            'pago_id' => $pago->id
-        ]);
+            // Crear orden de pago
+            $response = Http::withToken($accessToken)
+                ->post("{$paypalConfig['base_url']}/v2/checkout/orders", $data);
 
-        // Crear orden de pago
-        $response = Http::withToken($accessToken)
-            ->post("{$paypalConfig['base_url']}/v2/checkout/orders", $data);
-
-        Log::channel('paypal')->info('PayPal Order Request', [
-            'url' => "{$paypalConfig['base_url']}/v2/checkout/orders",
-            'data' => $data,
-            'pago_id' => $pago->id,
-            'mode' => $paypalMode
-        ]);
-
-        if ($response->successful()) {
-            $result = $response->json();
-            
-            Log::channel('paypal')->info('PayPal Order creada exitosamente', [
-                'paypal_order_id' => $result['id'],
+            Log::channel('paypal')->info('PayPal Order Request', [
+                'url' => "{$paypalConfig['base_url']}/v2/checkout/orders",
+                'data' => $data,
                 'pago_id' => $pago->id,
-                'mode' => $paypalMode,
-                'approve_link' => collect($result['links'])->firstWhere('rel', 'approve')['href'] ?? 'No encontrado'
+                'mode' => $paypalMode
             ]);
 
-            // Guardar ID de orden de PayPal
-            $pago->respuesta_proveedor = [
-                'paypal_order_id' => $result['id'],
-                'paypal_mode' => $paypalMode
-            ];
-            $pago->save();
+            if ($response->successful()) {
+                $result = $response->json();
 
-            // Redireccionar al link de aprobación
-            $approveLink = collect($result['links'])->firstWhere('rel', 'approve')['href'];
+                Log::channel('paypal')->info('PayPal Order creada exitosamente', [
+                    'paypal_order_id' => $result['id'],
+                    'pago_id' => $pago->id,
+                    'mode' => $paypalMode,
+                    'approve_link' => collect($result['links'])->firstWhere('rel', 'approve')['href'] ?? 'No encontrado'
+                ]);
 
-            return redirect($approveLink);
+                // Guardar ID de orden de PayPal
+                $pago->respuesta_proveedor = [
+                    'paypal_order_id' => $result['id'],
+                    'paypal_mode' => $paypalMode
+                ];
+                $pago->save();
+
+                // Redireccionar al link de aprobación
+                $approveLink = collect($result['links'])->firstWhere('rel', 'approve')['href'];
+
+                return redirect($approveLink);
+            }
+
+            Log::channel('paypal')->error('PayPal Order Creation Error', [
+                'status' => $response->status(),
+                'response' => $response->json(),
+                'body' => $response->body(),
+                'data_sent' => $data,
+                'pago_id' => $pago->id,
+                'mode' => $paypalMode
+            ]);
+
+            throw new \Exception('Error al crear la orden de pago: ' . $response->body());
+        } catch (\Exception $e) {
+            Log::channel('paypal')->error('Error PayPal iniciarPagoPaypal', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'pago_id' => $pago->id,
+                'curso_id' => $pago->curso_id,
+                'valor' => $pago->valor,
+                'mode' => config('services.paypal.mode'),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return redirect()
+                ->route('pagos.publico.error', $pago)
+                ->with('error', 'Error al iniciar el pago con PayPal: ' . $e->getMessage());
         }
-
-        Log::channel('paypal')->error('PayPal Order Creation Error', [
-            'status' => $response->status(),
-            'response' => $response->json(),
-            'body' => $response->body(),
-            'data_sent' => $data,
-            'pago_id' => $pago->id,
-            'mode' => $paypalMode
-        ]);
-
-        throw new \Exception('Error al crear la orden de pago: ' . $response->body());
-
-    } catch (\Exception $e) {
-        Log::channel('paypal')->error('Error PayPal iniciarPagoPaypal', [
-            'error_message' => $e->getMessage(),
-            'error_file' => $e->getFile(),
-            'error_line' => $e->getLine(),
-            'pago_id' => $pago->id,
-            'curso_id' => $pago->curso_id,
-            'valor' => $pago->valor,
-            'mode' => config('services.paypal.mode'),
-            'trace' => $e->getTraceAsString()
-        ]);
-
-        return redirect()
-            ->route('pagos.publico.error', $pago)
-            ->with('error', 'Error al iniciar el pago con PayPal: ' . $e->getMessage());
     }
-}
 
-/*
+    /*
     public function capturePaypalPayment(Request $request, PagosEfectuados $pago)
     {
         try {
@@ -375,152 +374,150 @@ class PagoPublicoController extends Controller
     public function capturePaypalPayment(Request $request, PagosEfectuados $pago)
     {
         try {
-        $botonPago = $pago->botonPago;
-        $paypalOrderId = $request->token;
+            $botonPago = $pago->botonPago;
+            $paypalOrderId = $request->token;
 
-        // Obtener configuración de PayPal desde config/services.php
-        $paypalMode = config('services.paypal.mode');
-        $paypalConfig = config("services.paypal.{$paypalMode}");
-        
-        if (!$paypalConfig['client_id'] || !$paypalConfig['client_secret']) {
-            throw new \Exception("Credenciales de PayPal no configuradas para modo: {$paypalMode}");
-        }
+            // Obtener configuración de PayPal desde config/services.php
+            $paypalMode = config('services.paypal.mode');
+            $paypalConfig = config("services.paypal.{$paypalMode}");
 
-        // Obtener token de acceso
-        $tokenResponse = Http::withBasicAuth(
-                $paypalConfig['client_id'], 
+            if (!$paypalConfig['client_id'] || !$paypalConfig['client_secret']) {
+                throw new \Exception("Credenciales de PayPal no configuradas para modo: {$paypalMode}");
+            }
+
+            // Obtener token de acceso
+            $tokenResponse = Http::withBasicAuth(
+                $paypalConfig['client_id'],
                 $paypalConfig['client_secret']
             )
-            ->asForm()
-            ->post("{$paypalConfig['base_url']}/v1/oauth2/token", [
-                'grant_type' => 'client_credentials'
-            ]);
+                ->asForm()
+                ->post("{$paypalConfig['base_url']}/v1/oauth2/token", [
+                    'grant_type' => 'client_credentials'
+                ]);
 
-        if (!$tokenResponse->successful()) {
-            Log::channel('paypal')->error('PayPal Capture Token Error', [
-                'status' => $tokenResponse->status(),
-                'response' => $tokenResponse->json(),
-                'body' => $tokenResponse->body(),
+
+            if (!$tokenResponse->successful()) {
+                Log::channel('paypal')->error('PayPal Capture Token Error', [
+                    'status' => $tokenResponse->status(),
+                    'response' => $tokenResponse->json(),
+                    'body' => $tokenResponse->body(),
+                    'mode' => $paypalMode,
+                    'pago_id' => $pago->id,
+                    'paypal_order_id' => $paypalOrderId
+                ]);
+
+                throw new \Exception('Error al obtener token de PayPal: ' . $tokenResponse->body());
+            }
+
+            $accessToken = $tokenResponse->json()['access_token'];
+
+            Log::channel('paypal')->info('PayPal Capture Token obtenido', [
                 'mode' => $paypalMode,
                 'pago_id' => $pago->id,
                 'paypal_order_id' => $paypalOrderId
             ]);
-            throw new \Exception('Error al obtener token de PayPal: ' . $tokenResponse->body());
-        }
 
-        $accessToken = $tokenResponse->json()['access_token'];
-        
-        Log::channel('paypal')->info('PayPal Capture Token obtenido', [
-            'mode' => $paypalMode,
-            'pago_id' => $pago->id,
-            'paypal_order_id' => $paypalOrderId
-        ]);
-
-        // Capturar el pago
-        Log::channel('paypal')->info('PayPal Capture Request', [
-            'url' => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
-            'headers' => ['Accept' => 'application/json', 'Authorization' => 'Bearer [TOKEN]'],
-            'method' => 'POST',
-            'body' => 'empty',
-            'pago_id' => $pago->id,
-            'paypal_order_id' => $paypalOrderId,
-            'mode' => $paypalMode
-        ]);
-
-        // Usar cURL directo para evitar problemas con Laravel HTTP client
-        $curl = curl_init();
-        curl_setopt_array($curl, [
-            CURLOPT_URL => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING => '',
-            CURLOPT_MAXREDIRS => 10,
-            CURLOPT_TIMEOUT => 30,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST => 'POST',
-            CURLOPT_HTTPHEADER => [
-                'Accept: application/json',
-                'Authorization: Bearer ' . $accessToken
-            ],
-        ]);
-
-        $curlResponse = curl_exec($curl);
-        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($curl);
-        curl_close($curl);
-
-        Log::channel('paypal')->info('PayPal Capture cURL Response', [
-            'http_code' => $httpCode,
-            'curl_error' => $curlError,
-            'response_body' => $curlResponse,
-            'pago_id' => $pago->id,
-            'paypal_order_id' => $paypalOrderId,
-            'mode' => $paypalMode
-        ]);
-
-        if ($curlError) {
-            throw new \Exception('cURL Error: ' . $curlError);
-        }
-
-        $response = json_decode($curlResponse, true);
-        
-        if ($httpCode >= 200 && $httpCode < 300) {
-            
-        if ($httpCode >= 200 && $httpCode < 300) {
-            $result = $response;
-            
-            Log::channel('paypal')->info('PayPal Capture exitoso', [
+            // Capturar el pago
+            Log::channel('paypal')->info('PayPal Capture Request', [
+                'url' => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
+                'headers' => ['Accept' => 'application/json', 'Authorization' => 'Bearer [TOKEN]'],
+                'method' => 'POST',
+                'body' => 'empty',
                 'pago_id' => $pago->id,
                 'paypal_order_id' => $paypalOrderId,
-                'capture_id' => $result['purchase_units'][0]['payments']['captures'][0]['id'] ?? 'No encontrado',
-                'amount' => $result['purchase_units'][0]['payments']['captures'][0]['amount'] ?? 'No encontrado',
-                'status' => $result['status'] ?? 'No encontrado',
                 'mode' => $paypalMode
             ]);
 
-            // Actualizar estado del pago
-            $pago->estado = 'COMPLETADO';
-            $pago->respuesta_proveedor = array_merge(
-                $pago->respuesta_proveedor ?? [],
-                [
-                    'paypal_capture_details' => $result,
-                    'paypal_mode' => $paypalMode
-                ]
-            );
-            $pago->fecha_pago = now();
-            $pago->save();
+            // Usar cURL directo para evitar problemas con Laravel HTTP client
+            $curl = curl_init();
+            curl_setopt_array($curl, [
+                CURLOPT_URL => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_ENCODING => '',
+                CURLOPT_MAXREDIRS => 10,
+                CURLOPT_TIMEOUT => 30,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+                CURLOPT_CUSTOMREQUEST => 'POST',
+                CURLOPT_HTTPHEADER => [
+                    'Accept: application/json',
+                    'Authorization: Bearer ' . $accessToken
+                ],
+            ]);
 
-            return redirect()->route('pagos.publico.estado', $pago);
+            $curlResponse = curl_exec($curl);
+            $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($curl);
+            curl_close($curl);
+
+            Log::channel('paypal')->info('PayPal Capture cURL Response', [
+                'http_code' => $httpCode,
+                'curl_error' => $curlError,
+                'response_body' => $curlResponse,
+                'pago_id' => $pago->id,
+                'paypal_order_id' => $paypalOrderId,
+                'mode' => $paypalMode
+            ]);
+
+            if ($curlError) {
+                throw new \Exception('cURL Error: ' . $curlError);
+            }
+
+            $response = json_decode($curlResponse, true);
+
+            if ($httpCode >= 200 && $httpCode < 300) {
+                $result = $response;
+
+                Log::channel('paypal')->info('PayPal Capture exitoso', [
+                    'pago_id' => $pago->id,
+                    'paypal_order_id' => $paypalOrderId,
+                    'capture_id' => $result['purchase_units'][0]['payments']['captures'][0]['id'] ?? 'No encontrado',
+                    'amount' => $result['purchase_units'][0]['payments']['captures'][0]['amount'] ?? 'No encontrado',
+                    'status' => $result['status'] ?? 'No encontrado',
+                    'mode' => $paypalMode
+                ]);
+
+                // Actualizar estado del pago
+                $pago->estado = 'COMPLETADO';
+                $pago->respuesta_proveedor = array_merge(
+                    $pago->respuesta_proveedor ?? [],
+                    [
+                        'paypal_capture_details' => $result,
+                        'paypal_mode' => $paypalMode
+                    ]
+                );
+                $pago->fecha_pago = now();
+                $pago->save();
+
+                return redirect()->route('pagos.publico.estado', $pago);
+            }
+
+            Log::channel('paypal')->error('PayPal Capture Error', [
+                'status' => $httpCode,
+                'response' => $response,
+                'body' => $curlResponse,
+                'pago_id' => $pago->id,
+                'paypal_order_id' => $paypalOrderId,
+                'mode' => $paypalMode
+            ]);
+            throw new \Exception('Error al capturar pago en PayPal: ' . $curlResponse);
+        } catch (\Exception $e) {
+            Log::channel('paypal')->error('Error PayPal capturePaypalPayment', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'pago_id' => $pago->id,
+                'paypal_order_id' => $paypalOrderId ?? 'No disponible',
+                'token_request' => $request->token ?? 'No disponible',
+                'mode' => config('services.paypal.mode'),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return redirect()
+                ->route('pagos.publico.error', $pago)
+                ->with('error', 'Error al procesar el pago: ' . $e->getMessage());
         }
-
-        Log::channel('paypal')->error('PayPal Capture Error', [
-            'status' => $httpCode,
-            'response' => $response,
-            'body' => $curlResponse,
-            'pago_id' => $pago->id,
-            'paypal_order_id' => $paypalOrderId,
-            'mode' => $paypalMode
-        ]);
-
-        throw new \Exception('Error al capturar pago en PayPal: ' . $curlResponse);
-
-    } catch (\Exception $e) {
-        Log::channel('paypal')->error('Error PayPal capturePaypalPayment', [
-            'error_message' => $e->getMessage(),
-            'error_file' => $e->getFile(),
-            'error_line' => $e->getLine(),
-            'pago_id' => $pago->id,
-            'paypal_order_id' => $paypalOrderId ?? 'No disponible',
-            'token_request' => $request->token ?? 'No disponible',
-            'mode' => config('services.paypal.mode'),
-            'trace' => $e->getTraceAsString()
-        ]);
-
-        return redirect()
-            ->route('pagos.publico.error', $pago)
-            ->with('error', 'Error al procesar el pago: ' . $e->getMessage());
     }
-}
 
     /**
      * Inicia el proceso de pago con PayPhone
@@ -720,7 +717,7 @@ class PagoPublicoController extends Controller
             $phoneNumber = preg_replace('/[^0-9]/', '', $pago->telefono ?? '0999999999');
             $phoneNumber = ltrim($phoneNumber, '0'); // Remover el 0 inicial si existe
             $phoneNumber = '+593' . $phoneNumber; // Agregar el prefijo +593
-            
+
             $paymentData = [
                 "amount" => intval($pago->valor * 100),
                 "amountWithoutTax" => intval($pago->valor * 100),
@@ -768,7 +765,7 @@ class PagoPublicoController extends Controller
 
             if ($response->status() === 200 && $response->json()) {
                 $responseData = $response->json();
-                
+
                 Log::channel('payphone')->info('PayPhone Response procesada', [
                     'pago_id' => $pago->id,
                     'response_keys' => array_keys($responseData),
@@ -818,7 +815,6 @@ class PagoPublicoController extends Controller
                     'request_data' => $paymentData
                 ]
             ], 400);
-
         } catch (\Exception $e) {
             Log::channel('payphone')->error('PayPhone Exception en generarLinkPago', [
                 'error_message' => $e->getMessage(),

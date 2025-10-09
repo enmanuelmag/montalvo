@@ -16,7 +16,7 @@ class PayPhoneController extends Controller
 
             // Preparar los datos para PayPhone
             $data = [
-                "phoneNumber" => "593".substr($pago->telefono, 1), // Convertir formato: 0991234567 -> 593991234567
+                "phoneNumber" => "593" . substr($pago->telefono, 1), // Convertir formato: 0991234567 -> 593991234567
                 "countryCode" => "EC",
                 "clientUserId" => $botonPago->key_boton_pago,
                 "reference" => $pago->referencia,
@@ -64,7 +64,6 @@ class PayPhoneController extends Controller
                 $errorData = $response->json();
                 throw new \Exception('Error de PayPhone: ' . ($errorData['message'] ?? 'Error desconocido'));
             }
-
         } catch (\Exception $e) {
             // Actualizar estado del pago
             $pago->estado = 'FALLIDO';
@@ -118,13 +117,13 @@ class PayPhoneController extends Controller
         try {
             // Verificar el estado del pago con PayPhone
             $botonPago = $pago->botonPago;
-            
+
             Log::channel('payphone')->info('PayPhone verificando estado desde webhook', [
                 'pago_id' => $pago->id,
                 'transaction_id' => $transactionId,
                 'endpoint' => $botonPago->url_boton_pago . "api/button/V2/Confirm/{$transactionId}"
             ]);
-            
+
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . $botonPago->token_boton_pago
             ])->get($botonPago->url_boton_pago . "api/button/V2/Confirm/{$transactionId}");
@@ -175,7 +174,6 @@ class PayPhoneController extends Controller
             } else {
                 throw new \Exception('Error al confirmar con PayPhone: ' . $response->body());
             }
-
         } catch (\Exception $e) {
             Log::channel('payphone')->error('Error en PayPhone webhook', [
                 'error_message' => $e->getMessage(),
@@ -200,44 +198,44 @@ class PayPhoneController extends Controller
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
-            $response = Http::withHeaders([
-                'Authorization' => $botonPago->token_boton_pago
-            ])->get($botonPago->url_boton_pago . "api/button/V2/Confirm/{$transactionId}");
+    //         $response = Http::withHeaders([
+    //             'Authorization' => $botonPago->token_boton_pago
+    //         ])->get($botonPago->url_boton_pago . "api/button/V2/Confirm/{$transactionId}");
 
-            if ($response->successful()) {
-                $responseData = $response->json();
+    //         if ($response->successful()) {
+    //             $responseData = $response->json();
 
-                // Actualizar el estado del pago según la respuesta
-                $pago->estado = $responseData['transactionStatus'] === 'Approved' ? 'COMPLETADO' : 'FALLIDO';
-                $pago->respuesta_proveedor = array_merge(
-                    $pago->respuesta_proveedor ?? [],
-                    ['confirmacion' => $responseData]
-                );
-                $pago->save();
+    //             // Actualizar el estado del pago según la respuesta
+    //             $pago->estado = $responseData['transactionStatus'] === 'Approved' ? 'COMPLETADO' : 'FALLIDO';
+    //             $pago->respuesta_proveedor = array_merge(
+    //                 $pago->respuesta_proveedor ?? [],
+    //                 ['confirmacion' => $responseData]
+    //             );
+    //             $pago->save();
 
-                // Si el pago fue exitoso y aún no está registrado en Moodle
-                if ($pago->estado === 'COMPLETADO' && !$pago->registrado_moodle) {
-                    // Aquí iría la lógica para registrar en Moodle
-                    // $this->registrarEnMoodle($pago);
-                }
+    //             // Si el pago fue exitoso y aún no está registrado en Moodle
+    //             if ($pago->estado === 'COMPLETADO' && !$pago->registrado_moodle) {
+    //                 // Aquí iría la lógica para registrar en Moodle
+    //                 // $this->registrarEnMoodle($pago);
+    //             }
 
-                return response()->json(['success' => true]);
-            } else {
-                throw new \Exception('Error al confirmar con PayPhone');
-            }
+    //             return response()->json(['success' => true]);
+    //         } else {
+    //             throw new \Exception('Error al confirmar con PayPhone');
+    //         }
 
-        } catch (\Exception $e) {
-            // Registrar el error
-            $pago->estado = 'FALLIDO';
-            $pago->respuesta_proveedor = array_merge(
-                $pago->respuesta_proveedor ?? [],
-                ['error_confirmacion' => $e->getMessage()]
-            );
-            $pago->save();
+    //     } catch (\Exception $e) {
+    //         // Registrar el error
+    //         $pago->estado = 'FALLIDO';
+    //         $pago->respuesta_proveedor = array_merge(
+    //             $pago->respuesta_proveedor ?? [],
+    //             ['error_confirmacion' => $e->getMessage()]
+    //         );
+    //         $pago->save();
 
-            return response()->json(['error' => $e->getMessage()], 500);
-        }
-    }
+    //         return response()->json(['error' => $e->getMessage()], 500);
+    //     }
+    // }
 
     protected function validarFirma(Request $request)
     {
