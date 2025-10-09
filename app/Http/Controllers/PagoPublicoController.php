@@ -285,7 +285,7 @@ class PagoPublicoController extends Controller
             return redirect($approveLink);
         }
 
-        \Log::error('PayPal Order Creation Error', [
+        Log::channel('paypal')->error('PayPal Order Creation Error', [
             'status' => $response->status(),
             'response' => $response->json(),
             'body' => $response->body(),
@@ -297,7 +297,7 @@ class PagoPublicoController extends Controller
         throw new \Exception('Error al crear la orden de pago: ' . $response->body());
 
     } catch (\Exception $e) {
-        \Log::error('Error PayPal iniciarPagoPaypal', [
+        Log::channel('paypal')->error('Error PayPal iniciarPagoPaypal', [
             'error_message' => $e->getMessage(),
             'error_file' => $e->getFile(),
             'error_line' => $e->getLine(),
@@ -397,7 +397,7 @@ class PagoPublicoController extends Controller
             ]);
 
         if (!$tokenResponse->successful()) {
-            \Log::error('PayPal Capture Token Error', [
+            Log::channel('paypal')->error('PayPal Capture Token Error', [
                 'status' => $tokenResponse->status(),
                 'response' => $tokenResponse->json(),
                 'body' => $tokenResponse->body(),
@@ -410,7 +410,7 @@ class PagoPublicoController extends Controller
 
         $accessToken = $tokenResponse->json()['access_token'];
         
-        \Log::info('PayPal Capture Token obtenido', [
+        Log::channel('paypal')->info('PayPal Capture Token obtenido', [
             'mode' => $paypalMode,
             'pago_id' => $pago->id,
             'paypal_order_id' => $paypalOrderId
@@ -418,9 +418,13 @@ class PagoPublicoController extends Controller
 
         // Capturar el pago
         $response = Http::withToken($accessToken)
+            ->withHeaders([
+                'Content-Type' => 'application/json',
+                'Accept' => 'application/json'
+            ])
             ->post("{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture");
 
-        \Log::info('PayPal Capture Request', [
+        Log::channel('paypal')->info('PayPal Capture Request', [
             'url' => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
             'pago_id' => $pago->id,
             'paypal_order_id' => $paypalOrderId,
@@ -430,7 +434,7 @@ class PagoPublicoController extends Controller
         if ($response->successful()) {
             $result = $response->json();
             
-            \Log::info('PayPal Capture exitoso', [
+            Log::channel('paypal')->info('PayPal Capture exitoso', [
                 'pago_id' => $pago->id,
                 'paypal_order_id' => $paypalOrderId,
                 'capture_id' => $result['purchase_units'][0]['payments']['captures'][0]['id'] ?? 'No encontrado',
@@ -454,7 +458,7 @@ class PagoPublicoController extends Controller
             return redirect()->route('pagos.publico.estado', $pago);
         }
 
-        \Log::error('PayPal Capture Error', [
+        Log::channel('paypal')->error('PayPal Capture Error', [
             'status' => $response->status(),
             'response' => $response->json(),
             'body' => $response->body(),
@@ -466,7 +470,7 @@ class PagoPublicoController extends Controller
         throw new \Exception('Error al capturar pago en PayPal: ' . $response->body());
 
     } catch (\Exception $e) {
-        \Log::error('Error PayPal capturePaypalPayment', [
+        Log::channel('paypal')->error('Error PayPal capturePaypalPayment', [
             'error_message' => $e->getMessage(),
             'error_file' => $e->getFile(),
             'error_line' => $e->getLine(),
@@ -505,14 +509,23 @@ class PagoPublicoController extends Controller
                 "reference" => $pago->referencia
             ];
 
-            \Log::debug('Inicio Pago PayPhone:', [
-                'pago' => $pago->toArray(),
-                'data' => $data
+            Log::channel('payphone')->info('Iniciando pago PayPhone', [
+                'pago_id' => $pago->id,
+                'referencia' => $pago->referencia,
+                'monto' => $pago->valor,
+                'email' => $pago->correo,
+                'data_prepared' => $data
             ]);
 
             return view('pagos.publico.payphone', compact('pago', 'data', 'botonPago'));
         } catch (\Exception $e) {
-            \Log::error('Error PayPhone: ' . $e->getMessage());
+            Log::channel('payphone')->error('Error al iniciar pago PayPhone', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'pago_id' => $pago->id,
+                'trace' => $e->getTraceAsString()
+            ]);
             return redirect()->route('pagos.publico.error', $pago)
                 ->with('error', 'Error al iniciar el pago: ' . $e->getMessage());
         }
@@ -672,6 +685,7 @@ class PagoPublicoController extends Controller
             $phoneNumber = preg_replace('/[^0-9]/', '', $pago->telefono ?? '0999999999');
             $phoneNumber = ltrim($phoneNumber, '0'); // Remover el 0 inicial si existe
             $phoneNumber = '+593' . $phoneNumber; // Agregar el prefijo +593
+            
             $paymentData = [
                 "amount" => intval($pago->valor * 100),
                 "amountWithoutTax" => intval($pago->valor * 100),
@@ -688,29 +702,62 @@ class PagoPublicoController extends Controller
                 "cancellationUrl" => route('pagos.publico.error', $pago->id),
             ];
 
-            \Log::info('PayPhone Request:', ['data' => $paymentData]);
+            Log::channel('payphone')->info('PayPhone Request preparado', [
+                'pago_id' => $pago->id,
+                'referencia' => $pago->referencia,
+                'monto_original' => $pago->valor,
+                'monto_centavos' => intval($pago->valor * 100),
+                'telefono_original' => $pago->telefono,
+                'telefono_procesado' => $phoneNumber,
+                'payment_data' => $paymentData,
+                'token_length' => strlen($botonPago->token_boton_pago ?? ''),
+                'endpoint' => 'https://pay.payphonetodoesposible.com/api/button/Prepare'
+            ]);
 
             // Hacer la petición y obtener la respuesta completa
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer bFvDKse17zYywcT62hrlnthfDq8L1ZUfMr2yK5aj8sEWqlJ6xf2cJdpADWAjEedJ7Zu48TTukcd31EuDpc_DvB7mOQ_6dOgdnVFH4juHEq3UN7gAKoyNcCmbwb0E2y-g4NxA7eeXuV2RWbyd8gzWuTiCQMA1_qL4c9w8j55siJAcLh1b2LJ1ql814d0ItCCERjvqlm28nAhE5BS_RiKnsubP7HFMRJoQzp6o0QzVaWbmHsYHwkuq-3_nXL0V3j5ZoRK5EiV8CGxtv_HsSxV6qURDUgGK-VH6xrbNXCHZ8d_XzDujmbG14mrcseyZUM3_ZfzEHA' , // Añadido 'Bearer'
+                'Authorization' => 'Bearer ' . $botonPago->token_boton_pago,
                 'Content-Type' => 'application/json'
             ])->post('https://pay.payphonetodoesposible.com/api/button/Prepare', $paymentData);
 
-            // Loguear toda la información de la respuesta
-            \Log::info('PayPhone Response Info:', [
-                'status' => $response->status(),
-                'headers' => $response->headers(),
-                'body' => $response->body(),
-                'json' => $response->json(),
-                'url' => 'https://pay.payphonetodoesposible.com/api/buttons/V2/Generate',
-                'data_sent' => $paymentData
+            // Loguear información detallada de la respuesta
+            Log::channel('payphone')->info('PayPhone Response recibida', [
+                'pago_id' => $pago->id,
+                'status_code' => $response->status(),
+                'response_headers' => $response->headers(),
+                'response_body_raw' => $response->body(),
+                'response_json' => $response->json(),
+                'is_successful' => $response->successful(),
+                'endpoint_used' => 'https://pay.payphonetodoesposible.com/api/button/Prepare'
             ]);
 
             if ($response->status() === 200 && $response->json()) {
                 $responseData = $response->json();
-                \Log::info('Response Data:', ['data' => $responseData]);
+                
+                Log::channel('payphone')->info('PayPhone Response procesada', [
+                    'pago_id' => $pago->id,
+                    'response_keys' => array_keys($responseData),
+                    'has_payWithPayPhone' => isset($responseData['payWithPayPhone']),
+                    'payWithPayPhone_url' => $responseData['payWithPayPhone'] ?? 'No encontrado'
+                ]);
 
                 if (isset($responseData['payWithPayPhone'])) {
+                    // Guardar información de la transacción
+                    $pago->respuesta_proveedor = array_merge(
+                        $pago->respuesta_proveedor ?? [],
+                        [
+                            'payphone_request_data' => $paymentData,
+                            'payphone_response' => $responseData,
+                            'payphone_link_generated' => now()->toDateTimeString()
+                        ]
+                    );
+                    $pago->save();
+
+                    Log::channel('payphone')->info('PayPhone link generado exitosamente', [
+                        'pago_id' => $pago->id,
+                        'payphone_url' => $responseData['payWithPayPhone']
+                    ]);
+
                     return response()->json([
                         'success' => true,
                         'payWithPayPhone' => $responseData['payWithPayPhone']
@@ -718,7 +765,16 @@ class PagoPublicoController extends Controller
                 }
             }
 
-            // Devolver error con más detalles
+            // Error en la respuesta
+            Log::channel('payphone')->error('PayPhone Error en respuesta', [
+                'pago_id' => $pago->id,
+                'status_code' => $response->status(),
+                'response_body' => $response->body(),
+                'response_json' => $response->json(),
+                'expected_field' => 'payWithPayPhone',
+                'actual_fields' => $response->json() ? array_keys($response->json()) : 'No JSON response'
+            ]);
+
             return response()->json([
                 'error' => 'Error al generar el link de pago',
                 'details' => [
@@ -729,8 +785,12 @@ class PagoPublicoController extends Controller
             ], 400);
 
         } catch (\Exception $e) {
-            \Log::error('PayPhone Error:', [
-                'error' => $e->getMessage(),
+            Log::channel('payphone')->error('PayPhone Exception en generarLinkPago', [
+                'error_message' => $e->getMessage(),
+                'error_file' => $e->getFile(),
+                'error_line' => $e->getLine(),
+                'pago_id' => $pago->id ?? 'No disponible',
+                'token_available' => isset($botonPago->token_boton_pago),
                 'trace' => $e->getTraceAsString()
             ]);
 
@@ -739,45 +799,6 @@ class PagoPublicoController extends Controller
                 'message' => $e->getMessage(),
                 'details' => $e->getTrace()
             ], 500);
-        }
-    }
-// 'Authorization' => 'Bearer Hi9H-xszTi_X2vmkInKY3v5iAJ6IRm5_Lx60zsosW4RqnvfbJbSpfNBxLiYy0Fjao2CIrwPal2gbHQzsO7UdwCBneKB7UeEaCjqyprzl2IHkQB8iAsfxrSx3BDjrTMABNwFt_EMInF8UxkAkDiHuA0pXBZPj9w6XVay1u_zovWs_x7aSHafFpEofPRGxXBZdddT2SsAigOjtjbMA89bEc2RcoZ0COOlBrNs-T8SE_g5ruuN-yRlT_bYFoE66FgsHBn6uUXcugU1itImRqlB29M_IG4xRGcuo-1mbJTh_fuYvQyk3hQVICrtteuKjSFSPNab1sQ' , // Añadido 'Bearer'
-    public function verificarEstado(PagosEfectuados $pago)
-    {
-        try {
-            $botonPago = $pago->botonPago;
-
-            // Hacer petición a PayPhone para verificar estado
-            $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $botonPago->token_boton_pago,
-                'Content-Type' => 'application/json'
-            ])->get("https://pay.payphonetodoesposible.com/api/v2/transaction/{$pago->referencia}");
-
-            if ($response->successful()) {
-                $responseData = $response->json();
-
-                // Actualizar estado en la base de datos
-                $pago->estado = $responseData['status'] ?? 'PENDIENTE';
-                $pago->save();
-
-                return response()->json([
-                    'status' => $pago->estado
-                ]);
-            }
-
-            return response()->json([
-                'status' => 'PENDIENTE'
-            ]);
-
-        } catch (\Exception $e) {
-            \Log::error('Error al verificar estado:', [
-                'error' => $e->getMessage(),
-                'pago_id' => $pago->id
-            ]);
-
-            return response()->json([
-                'status' => 'PENDIENTE'
-            ]);
         }
     }
 }
