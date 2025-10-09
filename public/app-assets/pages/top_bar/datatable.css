@@ -1,0 +1,35 @@
+.flex-container {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.dt-buttons .btn {
+    margin-right: 5px;
+    border-radius: 0.25rem;
+    border: 0;
+}
+.btn-border-table {
+    border-radius: 0.25rem;
+    border: 0;
+}
+.btn-copy {
+    background-color: #1a32b5;
+    color: white;
+
+}
+.btn-csv {
+    background-color: #9ff4a3;
+    color: white;
+}
+.btn-excel {
+    background-color: #4caf50;
+    color: white;
+}
+.btn-pdf {
+    background-color: #ffaf45;
+    color: white;
+}
+.btn-print {
+    background-color: #2196f3;
+    color: white;
+}

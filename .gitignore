@@ -1,3 +1,4 @@
+# Laravel
 /.phpunit.cache
 /node_modules
 /public/build
@@ -15,16 +16,27 @@ Homestead.yaml
 auth.json
 npm-debug.log
 yarn-error.log
+
+# IDEs
 /.fleet
 /.idea
 /.vscode
 /.zed
+
+# Logs y cache
+/storage/logs/*.log
+/storage/framework/cache/data/*
+/storage/framework/sessions/*
+/storage/framework/testing/*
+/storage/framework/views/*
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Proyectos separados (si no los necesitas)
+montalvo/
+prueba_laravel11/
 cache/
 __MACOSX/
-.DS_Store
-montalvo/
-public/
-resources/
-database/
-prueba_laravel11/
-storage/
