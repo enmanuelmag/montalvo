@@ -373,8 +373,8 @@ class PagoPublicoController extends Controller
     }
     */
     public function capturePaypalPayment(Request $request, PagosEfectuados $pago)
-{
-    try {
+    {
+        try {
         $botonPago = $pago->botonPago;
         $paypalOrderId = $request->token;
 
