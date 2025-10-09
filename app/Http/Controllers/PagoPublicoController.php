@@ -417,22 +417,57 @@ class PagoPublicoController extends Controller
         ]);
 
         // Capturar el pago
-        $response = Http::withToken($accessToken)
-            ->withHeaders([
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json'
-            ])
-            ->post("{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture");
-
         Log::channel('paypal')->info('PayPal Capture Request', [
             'url' => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
+            'headers' => ['Accept' => 'application/json', 'Authorization' => 'Bearer [TOKEN]'],
+            'method' => 'POST',
+            'body' => 'empty',
             'pago_id' => $pago->id,
             'paypal_order_id' => $paypalOrderId,
             'mode' => $paypalMode
         ]);
 
-        if ($response->successful()) {
-            $result = $response->json();
+        // Usar cURL directo para evitar problemas con Laravel HTTP client
+        $curl = curl_init();
+        curl_setopt_array($curl, [
+            CURLOPT_URL => "{$paypalConfig['base_url']}/v2/checkout/orders/{$paypalOrderId}/capture",
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_ENCODING => '',
+            CURLOPT_MAXREDIRS => 10,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CUSTOMREQUEST => 'POST',
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . $accessToken
+            ],
+        ]);
+
+        $curlResponse = curl_exec($curl);
+        $httpCode = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($curl);
+        curl_close($curl);
+
+        Log::channel('paypal')->info('PayPal Capture cURL Response', [
+            'http_code' => $httpCode,
+            'curl_error' => $curlError,
+            'response_body' => $curlResponse,
+            'pago_id' => $pago->id,
+            'paypal_order_id' => $paypalOrderId,
+            'mode' => $paypalMode
+        ]);
+
+        if ($curlError) {
+            throw new \Exception('cURL Error: ' . $curlError);
+        }
+
+        $response = json_decode($curlResponse, true);
+        
+        if ($httpCode >= 200 && $httpCode < 300) {
+            
+        if ($httpCode >= 200 && $httpCode < 300) {
+            $result = $response;
             
             Log::channel('paypal')->info('PayPal Capture exitoso', [
                 'pago_id' => $pago->id,
@@ -459,15 +494,15 @@ class PagoPublicoController extends Controller
         }
 
         Log::channel('paypal')->error('PayPal Capture Error', [
-            'status' => $response->status(),
-            'response' => $response->json(),
-            'body' => $response->body(),
+            'status' => $httpCode,
+            'response' => $response,
+            'body' => $curlResponse,
             'pago_id' => $pago->id,
             'paypal_order_id' => $paypalOrderId,
             'mode' => $paypalMode
         ]);
 
-        throw new \Exception('Error al capturar pago en PayPal: ' . $response->body());
+        throw new \Exception('Error al capturar pago en PayPal: ' . $curlResponse);
 
     } catch (\Exception $e) {
         Log::channel('paypal')->error('Error PayPal capturePaypalPayment', [
