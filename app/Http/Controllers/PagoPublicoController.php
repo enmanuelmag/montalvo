@@ -200,6 +200,16 @@ class PagoPublicoController extends Controller
             $paypalMode = config('services.paypal.mode');
             $paypalConfig = config("services.paypal.{$paypalMode}");
 
+            Log::channel('paypal')->info('Iniciando pago PayPal', [
+                'mode' => $paypalMode,
+                'pago_id' => $pago->id,
+                'correo' => $pago->correo,
+                'curso' => $pago->curso_nombre,
+                'config_loaded' => !empty($paypalConfig),
+                'client_id_set' => !empty($paypalConfig['client_id']),
+                'client_secret_set' => !empty($paypalConfig['client_secret']),
+            ]);
+
             if (!$paypalConfig['client_id'] || !$paypalConfig['client_secret']) {
                 throw new \Exception("Credenciales de PayPal no configuradas para modo: {$paypalMode}");
             }
