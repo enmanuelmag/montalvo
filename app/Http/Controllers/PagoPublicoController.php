@@ -578,9 +578,61 @@ class PagoPublicoController extends Controller
     /**
      * Muestra el estado del pago al cliente
      */
-    public function estadoPago(PagosEfectuados $pago)
+    public function estadoPagoOld(PagosEfectuados $pago)
     {
         return view('pagos.publico.estado', compact('pago'));
+    }
+
+    public function estadoPago(Request $request, PagosEfectuados $pago)
+    {
+        // Verificar si vienen parámetros de PayPhone
+        if ($request->has('id') && $request->has('clientTransactionId')) {
+            $payphoneId = $request->get('id');
+            $clientTransactionId = $request->get('clientTransactionId');
+            
+            Log::channel('payphone')->info('Parámetros de PayPhone detectados en responseUrl', [
+                'payphone_id' => $payphoneId,
+                'client_transaction_id' => $clientTransactionId,
+                'pago_id' => $pago->id
+            ]);
+            
+            try {
+                $this->verificarPagoConPayPhone($pago, $payphoneId, $clientTransactionId);
+            } catch (\Exception $e) {
+                Log::channel('payphone')->error('Error verificando pago desde responseUrl', [
+                    'payphone_id' => $payphoneId,
+                    'client_transaction_id' => $clientTransactionId,
+                    'pago_id' => $pago->id,
+                    'error' => $e->getMessage()
+                ]);
+            }
+        }
+        
+        return view('pagos.publico.estado', compact('pago'));
+    }
+
+    private function verificarPagoConPayPhone($pago, $transactionId, $clientTransactionId)
+    {
+        $data = [
+            "transactionId" => $transactionId,
+            "clientTransactionId" => $clientTransactionId
+        ];
+        
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer GeVv7rYKAoIsbtKbIJU8vnWQUI_J3a7B35b6l_QlTM7iqXAo_UEbFNQiOoKRjuir5IPRAlVdc_0mryyzEKle18FdsBtnqLkYHThDsaRoF6E6fG4f2rRiLF2Ei53Fh9ScGIk9PoRWC0s6PXRs6cr-MOikCI9NY4fXrogJARxsLQcM6jGZjv1Wdn59wgVLE17cQukiMQ0Xc7BiLEJPzzkaVwMPoYwptwJ5QO1F9cz233ghQ3C7CVvNgjMVG2ngFyQ4CrBMSTE2LZZk2e78U2OohUJPXb05wcyEWufBx2AN43BKsery8dvC89pDDRjuUxNbpdypGVOTXxL9HmYMaimD5goLtSA'
+        ])->post('https://pay.payphonetodoesposible.com/api/button/V2/Confirm/', $data);
+        
+        if ($response->successful()) {
+            $responseData = $response->json();
+            $nuevoEstado = $responseData['transactionStatus'] === 'Approved' ? 'COMPLETADO' : 'FALLIDO';
+            
+            $pago->estado = $nuevoEstado;
+            $pago->respuesta_proveedor = array_merge(
+                $pago->respuesta_proveedor ?? [],
+                ['confirmacion_desde_responseUrl' => $responseData]
+            );
+            $pago->save();
+        }
     }
 
     /**
@@ -726,9 +778,46 @@ class PagoPublicoController extends Controller
     {
         try {
             $botonPago = $pago->botonPago;
-            $phoneNumber = preg_replace('/[^0-9]/', '', $pago->telefono ?? '0999999999');
-            $phoneNumber = ltrim($phoneNumber, '0'); // Remover el 0 inicial si existe
-            $phoneNumber = '+593' . $phoneNumber; // Agregar el prefijo +593
+            $telefono = preg_replace('/[^0-9]/', '', $pago->telefono ?? '0999999999');
+
+            $countryCode = null;
+            $phoneNumberOnly = null;
+            
+            if (strpos($telefono, '+') === 0) {
+                // Códigos de país más comunes (de mayor a menor longitud)
+                $codigosPais = [
+                    // 3 dígitos
+                    '593' => 3, // Ecuador
+                    '507' => 3, // Panamá
+                    '506' => 3, // Costa Rica
+                    // 2 dígitos
+                    '52' => 2,  // México
+                    '54' => 2,  // Argentina
+                    '51' => 2,  // Perú
+                    '56' => 2,  // Chile
+                    '57' => 2,  // Colombia
+                    '58' => 2,  // Venezuela
+                    '34' => 2,  // España
+                    // 1 dígito
+                    '1' => 1,   // USA/Canadá
+                ];
+                
+                foreach ($codigosPais as $codigo => $longitud) {
+                    if (substr($telefono, 1, $longitud) === $codigo) {
+                        $countryCode = $codigo;
+                        $phoneNumberOnly = substr($telefono, 1 + $longitud);
+                        break;
+                    }
+                }
+                
+                if (!$countryCode) {
+                    $countryCode = '593';
+                    $phoneNumberOnly = substr($telefono, 1); // Todo después del +
+                }
+            } else {
+                $countryCode = '593';
+                $phoneNumberOnly = ltrim($telefono, '0');
+            }
 
             $paymentData = [
                 "amount" => intval($pago->valor * 100),
@@ -738,8 +827,8 @@ class PagoPublicoController extends Controller
                 "clientTransactionId" => $pago->referencia,
                 "currency" => "USD",
                 "reference" => $pago->referencia,
-                "phoneNumber" => $phoneNumber,
-                "countryCode" => "593",
+                "phoneNumber" => "+" . $countryCode . $phoneNumberOnly,
+                "countryCode" => $countryCode,
                 "email" => $pago->correo,
                 "documentId" => $pago->identificacion ?? '',
                 "responseUrl" => route('pagos.publico.estado', $pago->id),
@@ -752,7 +841,7 @@ class PagoPublicoController extends Controller
                 'monto_original' => $pago->valor,
                 'monto_centavos' => intval($pago->valor * 100),
                 'telefono_original' => $pago->telefono,
-                'telefono_procesado' => $phoneNumber,
+                'telefono_procesado' => $phoneNumberOnly,
                 'payment_data' => $paymentData,
                 'token_length' => strlen($botonPago->token_boton_pago ?? ''),
                 'endpoint' => 'https://pay.payphonetodoesposible.com/api/button/Prepare'
@@ -760,7 +849,9 @@ class PagoPublicoController extends Controller
 
             // Hacer la petición y obtener la respuesta completa
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . $botonPago->token_boton_pago,
+                // 'Authorization' => 'Bearer ' . $botonPago->token_boton_pago,
+                // 'Authorization' => 'Bearer bFvDKse17zYywcT62hrlnthfDq8L1ZUfMr2yK5aj8sEWqlJ6xf2cJdpADWAjEedJ7Zu48TTukcd31EuDpc_DvB7mOQ_6dOgdnVFH4juHEq3UN7gAKoyNcCmbwb0E2y-g4NxA7eeXuV2RWbyd8gzWuTiCQMA1_qL4c9w8j55siJAcLh1b2LJ1ql814d0ItCCERjvqlm28nAhE5BS_RiKnsubP7HFMRJoQzp6o0QzVaWbmHsYHwkuq-3_nXL0V3j5ZoRK5EiV8CGxtv_HsSxV6qURDUgGK-VH6xrbNXCHZ8d_XzDujmbG14mrcseyZUM3_ZfzEHA' , // Añadido 'Bearer'
+                'Authorization' => 'Bearer GeVv7rYKAoIsbtKbIJU8vnWQUI_J3a7B35b6l_QlTM7iqXAo_UEbFNQiOoKRjuir5IPRAlVdc_0mryyzEKle18FdsBtnqLkYHThDsaRoF6E6fG4f2rRiLF2Ei53Fh9ScGIk9PoRWC0s6PXRs6cr-MOikCI9NY4fXrogJARxsLQcM6jGZjv1Wdn59wgVLE17cQukiMQ0Xc7BiLEJPzzkaVwMPoYwptwJ5QO1F9cz233ghQ3C7CVvNgjMVG2ngFyQ4CrBMSTE2LZZk2e78U2OohUJPXb05wcyEWufBx2AN43BKsery8dvC89pDDRjuUxNbpdypGVOTXxL9HmYMaimD5goLtSA' ,
                 'Content-Type' => 'application/json'
             ])->post('https://pay.payphonetodoesposible.com/api/button/Prepare', $paymentData);
 
@@ -769,10 +860,10 @@ class PagoPublicoController extends Controller
                 'pago_id' => $pago->id,
                 'status_code' => $response->status(),
                 'response_headers' => $response->headers(),
-                'response_body_raw' => $response->body(),
-                'response_json' => $response->json(),
                 'is_successful' => $response->successful(),
-                'endpoint_used' => 'https://pay.payphonetodoesposible.com/api/button/Prepare'
+                'endpoint_used' => 'https://pay.payphonetodoesposible.com/api/button/Prepare',
+                'response_json' => $response->json(),
+                'response_body_raw' => $response->body()
             ]);
 
             if ($response->status() === 200 && $response->json()) {
@@ -787,17 +878,17 @@ class PagoPublicoController extends Controller
 
                 if (isset($responseData['payWithPayPhone'])) {
                     // Guardar información de la transacción
-                    $pago->respuesta_proveedor = array_merge(
-                        $pago->respuesta_proveedor ?? [],
-                        [
-                            'payphone_request_data' => $paymentData,
-                            'payphone_response' => $responseData,
-                            'payphone_link_generated' => now()->toDateTimeString()
-                        ]
-                    );
-                    $pago->save();
+                    // $pago->respuesta_proveedor = array_merge(
+                    //     $pago->respuesta_proveedor ?? [],
+                    //     [
+                    //         'payphone_request_data' => $paymentData,
+                    //         'payphone_response' => $responseData,
+                    //         'payphone_link_generated' => now()->toDateTimeString()
+                    //     ]
+                    // );
+                    // $pago->save();
 
-                    Log::channel('payphone')->info('PayPhone link generado exitosamente', [
+                    Log::channel('payphone')->info('PayPhone link generado exitosamente V3', [
                         'pago_id' => $pago->id,
                         'payphone_url' => $responseData['payWithPayPhone']
                     ]);
@@ -842,6 +933,45 @@ class PagoPublicoController extends Controller
                 'message' => $e->getMessage(),
                 'details' => $e->getTrace()
             ], 500);
+        }
+    }
+
+    public function verificarEstado(PagosEfectuados $pago)
+    {
+        try {
+            $botonPago = $pago->botonPago;
+
+            // Hacer petición a PayPhone para verificar estado
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $botonPago->token_boton_pago,
+                'Content-Type' => 'application/json'
+            ])->get("https://pay.payphonetodoesposible.com/api/v2/transaction/{$pago->referencia}");
+
+            if ($response->successful()) {
+                $responseData = $response->json();
+
+                // Actualizar estado en la base de datos
+                $pago->estado = $responseData['status'] ?? 'PENDIENTE';
+                $pago->save();
+
+                return response()->json([
+                    'status' => $pago->estado
+                ]);
+            }
+
+            return response()->json([
+                'status' => 'PENDIENTE'
+            ]);
+
+        } catch (\Exception $e) {
+            Log::channel('payphone')->error('Error al verificar estado de pago PayPhone', [
+                'error' => $e->getMessage(),
+                'pago_id' => $pago->id
+            ]);
+
+            return response()->json([
+                'status' => 'PENDIENTE'
+            ]);
         }
     }
 }

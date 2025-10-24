@@ -52,7 +52,15 @@
 
                                 <div class="mb-3">
                                     <label for="telefono" class="form-label">Teléfono</label>
-                                    <input type="tel" class="form-control" id="telefono" name="telefono" value="{{ old('telefono') }}">
+                                    <input
+                                        type="tel"
+                                        title="Ingrese 10 dígitos (ej: 0999999999) o formato internacional con + (ej: +593999999999)"
+                                        pattern="^(\+\d{7,15}|\d{10})$"
+                                        class="form-control"
+                                        id="telefono"
+                                        name="telefono"
+                                        value="{{ old('telefono') }}"
+                                    >
                                 </div>
                                 <div class="mb-3">
                                     <label for="ciudad" class="form-label">Ciudad</label>

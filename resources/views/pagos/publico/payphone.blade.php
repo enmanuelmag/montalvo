@@ -28,7 +28,7 @@
                             </div>
                         </div>
 
-                        <!-- Bot¨®n de PayPhone -->
+                        <!-- Botï¿½ï¿½n de PayPhone -->
                         <div class="text-center">
                             <div id="pp-button">
                                 <button onclick="processPayment()" class="btn btn-primary">
@@ -59,9 +59,11 @@
                 const data = await response.json();
 
                 if (data.payWithPayPhone) {
+                    console.log('Redirigiendo a PayPhone:', data.payWithPayPhone);
                     // Redirigir directamente a la URL de pago
                     window.location.href = data.payWithPayPhone;
                 } else {
+                    console.log('Data recibida:', data);
                     throw new Error(data.error || 'Error al generar el link de pago');
                 }
 
