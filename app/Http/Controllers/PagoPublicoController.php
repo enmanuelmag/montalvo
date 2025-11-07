@@ -621,6 +621,13 @@ class PagoPublicoController extends Controller
         $response = Http::withHeaders([
             'Authorization' => 'Bearer GeVv7rYKAoIsbtKbIJU8vnWQUI_J3a7B35b6l_QlTM7iqXAo_UEbFNQiOoKRjuir5IPRAlVdc_0mryyzEKle18FdsBtnqLkYHThDsaRoF6E6fG4f2rRiLF2Ei53Fh9ScGIk9PoRWC0s6PXRs6cr-MOikCI9NY4fXrogJARxsLQcM6jGZjv1Wdn59wgVLE17cQukiMQ0Xc7BiLEJPzzkaVwMPoYwptwJ5QO1F9cz233ghQ3C7CVvNgjMVG2ngFyQ4CrBMSTE2LZZk2e78U2OohUJPXb05wcyEWufBx2AN43BKsery8dvC89pDDRjuUxNbpdypGVOTXxL9HmYMaimD5goLtSA'
         ])->post('https://pay.payphonetodoesposible.com/api/button/V2/Confirm/', $data);
+
+        Log::channel('payphone')->info('Respuesta de verificación PayPhone', [
+            'pago_id' => $pago->id,
+            'transaction_id' => $transactionId,
+            'client_transaction_id' => $clientTransactionId,
+            'response' => $response->json()
+        ]);
         
         if ($response->successful()) {
             $responseData = $response->json();

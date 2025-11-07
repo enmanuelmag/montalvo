@@ -163,8 +163,16 @@
                         },
                         {
                             data: 'fecha_pago',
-                            render: function (data) {
-                                return data ? moment(data).format('DD/MM/YYYY HH:mm') : 'Sin fecha';
+                            // render: function (data) {
+                            //     return data ? moment(data).format('DD/MM/YYYY HH:mm') : 'Sin fecha';
+                            // }
+                            render: {
+                                _: function(data) {
+                                    return data ? moment(data).format('DD/MM/YYYY HH:mm') : 'Sin fecha';
+                                },
+                                sort: function(data) {
+                                    return data ? moment(data).unix() : 0; // Convierte a timestamp para ordenar
+                                }
                             }
                         },
                         {
