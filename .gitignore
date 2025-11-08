@@ -40,3 +40,5 @@ montalvo/
 prueba_laravel11/
 cache/
 __MACOSX/
+*.jpg
+*.png
